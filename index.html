@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Wie geht's – Befindlichkeitsplan</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+body { font-family: Arial, sans-serif; margin: 10px; }
+button { padding: 10px 14px; margin: 5px; font-size: 14px; }
+.hidden { display: none; }
+table { border-collapse: collapse; width: 100%; margin-top: 10px; font-size: 12px; }
+td, th { border: 1px solid #999; padding: 4px; text-align: center; }
+th { background: #f0f0f0; }
+input, textarea, select { width: 100%; padding: 8px; margin-top: 5px; font-size: 14px; }
+
+.slot-filled { color: green; font-weight: bold; }
+.slot-empty { color: black; font-weight: normal; }
+
+@media print {
+  button, .no-print { display: none !important; }
+}
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<!-- HOME -->
+<div id="home">
+  <h2>Erläuterungsskala 0–10</h2>
+  <ul>
+    <li>0 – Suizidgedanken</li>
+    <li>1 – Sehr starke Verzweiflung</li>
+    <li>2 – Starke Niedergeschlagenheit</li>
+    <li>3 – Deutliche depressive Stimmung</li>
+    <li>4 – Belastet</li>
+    <li>5 – Neutral</li>
+    <li>6 – Leicht positiv</li>
+    <li>7 – Gut</li>
+    <li>8 – Sehr gut</li>
+    <li>9 – Euphorisch</li>
+    <li>10 – Extrem positives Ereignis</li>
+  </ul>
+
+  <h3>Kalenderwochen</h3>
+  <div id="kwButtons"></div>
+</div>
+
+<!-- WEEK VIEW -->
+<div id="weekView" class="hidden">
+  <button onclick="showHome()">Zurück</button>
+  <button onclick="window.print()">Wochenübersicht drucken</button>
+  <button onclick="deleteWeek()">Woche löschen</button>
+
+  <h2 id="weekTitle"></h2>
+
+  <button onclick="openWeekChart()">Grafische Wochenkurve</button>
+  <button onclick="openPdfView()">PDF‑Ansicht</button>
+
+  <table id="weekTable"></table>
+</div>
+
+<!-- DAY VIEW -->
+<div id="dayView" class="hidden">
+  <button onclick="showWeek()">Zurück</button>
+  <h2 id="dayTitle"></h2>
+
+  <label>Uhrzeit:</label>
+  <select id="timeSlot"></select>
+
+  <label>Aktivität:</label>
+  <input id="activityInput">
+
+  <label>Kommentar:</label>
+  <textarea id="commentInput"></textarea>
+
+  <label>Bewertung (0–10):</label>
+  <select id="ratingInput"></select>
+
+  <button onclick="saveEntry()">Speichern</button>
+  <div id="savedMsg"></div>
+</div>
+
+<!-- WEEK CHART -->
+<div id="weekChartView" class="hidden">
+  <button onclick="showWeek()">Zurück</button>
+  <button onclick="window.print()">Grafik drucken</button>
+  <h2 id="chartTitle"></h2>
+  <canvas id="weekChart" width="400" height="200"></canvas>
+</div>
+
+<!-- PDF VIEW -->
+<div id="pdfView" class="hidden">
+  <button onclick="showWeek()">Zurück</button>
+  <button onclick="window.print()">PDF‑Ansicht drucken</button>
+  <h2 id="pdfTitle"></h2>
+  <table id="pdfTable"></table>
+</div>
+
+<script>
+const timeSlots = [
+  "5-6","6-7","7-8","8-9","9-10","10-11","11-12","12-13",
+  "13-14","14-15","15-16","16-17","17-18","18-19",
+  "19-20","20-21","21-22","22-23"
+];
+
+let currentWeek = null;
+let currentDay = null;
+
+window.onload = () => {
+  generateKWButtons();
+  fillTimeSlots();
+  fillRatingOptions();
+};
+
+/* KW BUTTONS */
+function generateKWButtons() {
+  const div = document.getElementById("kwButtons");
+  for(let kw=1; kw<=52; kw++){
+    const btn = document.createElement("button");
+    btn.textContent = "KW " + kw;
+    btn.onclick = () => openWeek(kw);
+    div.appendChild(btn);
+  }
+}
+
+/* NAVIGATION */
+function showHome(){
+  document.getElementById("home").classList.remove("hidden");
+  document.getElementById("weekView").classList.add("hidden");
+  document.getElementById("dayView").classList.add("hidden");
+  document.getElementById("weekChartView").classList.add("hidden");
+  document.getElementById("pdfView").classList.add("hidden");
+}
+
+function openWeek(kw){
+  currentWeek = kw;
+  document.getElementById("weekTitle").textContent = "Kalenderwoche " + kw;
+  updateWeekTable();
+  document.getElementById("home").classList.add("hidden");
+  document.getElementById("weekView").classList.remove("hidden");
+}
+
+function showWeek(){
+  updateWeekTable();
+  document.getElementById("weekView").classList.remove("hidden");
+  document.getElementById("dayView").classList.add("hidden");
+  document.getElementById("weekChartView").classList.add("hidden");
+  document.getElementById("pdfView").classList.add("hidden");
+}
+
+/* WEEK TABLE */
+function updateWeekTable(){
+  const table = document.getElementById("weekTable");
+  table.innerHTML = `
+    <tr><th>Tag</th><th>Mittelwert</th><th>Begriff</th><th class="no-print">Öffnen</th></tr>
+  `;
+
+  const days = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
+
+  days.forEach(day => {
+    const avg = calculateDayAverage(currentWeek, day);
+    const term = ratingTerm(avg);
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${day}</td>
+      <td>${avg ?? "-"}</td>
+      <td>${term}</td>
+      <td class="no-print"><button onclick="openDay('${day}')">Öffnen</button></td>
+    `;
+    table.appendChild(tr);
+  });
+}
+
+/* DELETE WEEK */
+function deleteWeek(){
+  if(!confirm("Alle Einträge dieser Woche löschen?")) return;
+
+  const days = ["Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag","Sonntag"];
+
+  days.forEach(day => {
+    timeSlots.forEach(slot => {
+      const key = `KW${currentWeek}_${day}_${slot}`;
+      localStorage.removeItem(key);
+    });
+  });
+
+  updateWeekTable();
+  alert("Woche gelöscht!");
+}
+
+/* DAY VIEW */
+function openDay(day){
+  currentDay = day;
+  document.getElementById("dayTitle").textContent = day;
+
+  document.getElementById("activityInput").value = "";
+  document.getElementById("commentInput").value = "";
+  document.getElementById("ratingInput").value = 0;
+
+  updateTimeSlotColors();
+
+  const sel = document.getElementById("timeSlot");
+  sel.selectedIndex = 0;
+  loadEntryForSlot(sel.value);
+
+  document.getElementById("weekView").classList.add("hidden");
+  document.getElementById("dayView").classList.remove("hidden");
+}
+
+/* TIME SLOTS */
+function fillTimeSlots(){
+  const sel = document.getElementById("timeSlot");
+  sel.innerHTML = "";
+  timeSlots.forEach(t => {
+    const opt = document.createElement("option");
+    opt.textContent = t;
+    opt.value = t;
+    opt.className = "slot-empty";
+    sel.appendChild(opt);
+  });
+
+  sel.addEventListener("change", () => {
+    loadEntryForSlot(sel.value);
+  });
+}
+
+/* RATINGS */
+function fillRatingOptions(){
+  const sel = document.getElementById("ratingInput");
+  sel.innerHTML = "";
+  for(let i=0;i<=10;i++){
+    const opt = document.createElement("option");
+    opt.textContent = i;
+    opt.value = i;
+    sel.appendChild(opt);
+  }
+}
+
+/* LOAD ENTRY */
+function loadEntryForSlot(slot){
+  const key = `KW${currentWeek}_${currentDay}_${slot}`;
+  const item = localStorage.getItem(key);
+
+  if(item){
+    const obj = JSON.parse(item);
+    document.getElementById("activityInput").value = obj.activity;
+    document.getElementById("commentInput").value = obj.comment;
+    document.getElementById("ratingInput").value = obj.rating;
+  } else {
+    document.getElementById("activityInput").value = "";
+    document.getElementById("commentInput").value = "";
+    document.getElementById("ratingInput").value = 0;
+  }
+}
+
+/* SAVE ENTRY */
+function saveEntry(){
+  const slot = document.getElementById("timeSlot").value;
+  const act = document.getElementById("activityInput").value;
+  const com = document.getElementById("commentInput").value;
+  const rat = parseInt(document.getElementById("ratingInput").value);
+
+  const key = `KW${currentWeek}_${currentDay}_${slot}`;
+  const data = { activity: act, comment: com, rating: rat };
+
+  localStorage.setItem(key, JSON.stringify(data));
+
+  document.getElementById("savedMsg").textContent = "Gespeichert!";
+  updateTimeSlotColors();
+}
+
+/* COLOR UPDATE */
+function updateTimeSlotColors(){
+  const sel = document.getElementById("timeSlot");
+
+  for(let i=0; i<sel.options.length; i++){
+    const slot = sel.options[i].value;
+    const key = `KW${currentWeek}_${currentDay}_${slot}`;
+    const item = localStorage.getItem(key);
+
+    sel.options[i].className = item ? "slot-filled" : "slot-empty";
+  }
+}
+
+/* AVERAGE */
+function calculateDayAverage(kw, day){
+  let sum = 0;
+  let count = 0;
+
+  for(const slot of timeSlots){
+    const key = `KW${kw}_${day}_${slot}`;
+    const item = localStorage.getItem(key);
+    if(item){
+      const obj = JSON.parse(item);
+      sum += obj.rating;
+      count++;
+    }
+  }
+
+  if(count === 0) return null;
+
+  return (sum / count).toFixed(2);
+}
+
+/* TERM */
+function ratingTerm(avg){
+  if(avg === null) return "";
+  avg = parseFloat(avg);
+
+  if(avg <= 1) return "Sehr schlecht";
+  if(avg <= 3) return "Schlecht";
+  if(avg <= 5) return "Neutral";
+  if(avg <= 7) return "Gut";
+  if(avg <= 9) return "Sehr gut";
+  return "Extrem positiv";
+}
+</script>
+
+</body>
+</html>
